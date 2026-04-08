@@ -1,58 +1,61 @@
 from __future__ import annotations
 
-import re
-
 from analyzer import AnalysisResult
 
 
-MARKDOWN_V2_SPECIALS = "\\_*[]()~`>#+-=|{}.!"
-URL_PATTERN = re.compile(r"https?://\S+")
+def _build_summary(result: AnalysisResult, request_mode: str) -> str:
+    if request_mode == "revision":
+        return "Updated draft ready"
+    verdict = (result.verdict or "Analysis complete").strip()
+    return f"Quick take: {verdict}"
 
 
-def escape_markdown_v2(text: str) -> str:
-    escaped = text
-    for char in MARKDOWN_V2_SPECIALS:
-        escaped = escaped.replace(char, f"\\{char}")
-    return escaped
+def _build_next_prompts(request_mode: str) -> list[str]:
+    if request_mode == "revision":
+        return [
+            "make it even shorter",
+            "rewrite it more neutrally",
+            "make the note more direct",
+        ]
+    return [
+        "make it shorter",
+        "rewrite more neutrally",
+        "focus on the strongest source",
+    ]
 
 
-def escape_markdown_preserving_urls(text: str) -> str:
-    parts: list[str] = []
-    last_index = 0
-    for match in URL_PATTERN.finditer(text):
-        parts.append(escape_markdown_v2(text[last_index:match.start()]))
-        parts.append(match.group(0))
-        last_index = match.end()
-    parts.append(escape_markdown_v2(text[last_index:]))
-    return "".join(parts)
-
-
-def format_analysis_message(result: AnalysisResult) -> str:
+def format_analysis_message(result: AnalysisResult, request_mode: str = "analysis") -> str:
     lines = [
-        "*Claim identified*",
-        escape_markdown_v2(result.claim or "Unavailable"),
+        _build_summary(result, request_mode),
         "",
-        "*Verdict*",
-        escape_markdown_v2(result.verdict or "Unavailable"),
+        "Claim",
+        result.claim or "Unavailable",
         "",
-        "*CN Form Selections*",
-        escape_markdown_v2(f'Is this tweet misleading? {result.form_misleading or "unknown"}'),
-        escape_markdown_v2(f'How is it misleading? {result.form_category or "unknown"}'),
-        escape_markdown_v2(f'Is it potentially harmful? {result.form_harmful or "unknown"}'),
+        "Verdict",
+        result.verdict or "Unavailable",
         "",
-        "*Draft Note Text*",
-        escape_markdown_preserving_urls(result.draft_note or "Unavailable"),
+        "Recommended form selections",
+        f'Is this tweet misleading? {result.form_misleading or "unknown"}',
+        f'How is it misleading? {result.form_category or "unknown"}',
+        f'Is it potentially harmful? {result.form_harmful or "unknown"}',
         "",
-        "*Sources*",
+        "Suggested Community Note",
+        result.draft_note or "Unavailable",
+        "",
+        "Sources",
     ]
 
     if result.sources:
         for index, source in enumerate(result.sources, start=1):
             description = source.get("description") or source.get("url") or "Source"
             url = source.get("url", "")
-            lines.append(f"{escape_markdown_v2(f'{index}. {description}: ')}{url}")
+            lines.append(f"{index}. {description}: {url}")
     else:
-        lines.append(escape_markdown_v2("No sources returned."))
+        lines.append("No sources returned.")
+
+    lines.extend(["", "Next prompts"])
+    for prompt in _build_next_prompts(request_mode):
+        lines.append(f'- {prompt}')
 
     return "\n".join(lines)
 
@@ -60,9 +63,10 @@ def format_analysis_message(result: AnalysisResult) -> str:
 def format_parse_failure(raw_text: str) -> str:
     return "\n".join(
         [
-            "*Structured parsing failed*",
-            "The model returned unstructured output\\. Raw response follows:",
+            "I couldn't finish the analysis.",
+            "Try sending the tweet URL again, paste the claim text directly, or ask for a simpler rewrite.",
             "",
-            escape_markdown_v2(raw_text or "No response text returned."),
+            "Details:",
+            raw_text or "No response text returned.",
         ]
     )

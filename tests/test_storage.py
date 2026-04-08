@@ -1,4 +1,10 @@
-from bot import build_followup_input, is_followup_request
+from bot import (
+    START_TEXT,
+    build_followup_input,
+    build_progress_updates,
+    detect_request_mode,
+    is_followup_request,
+)
 from storage import Storage
 
 
@@ -48,3 +54,25 @@ def test_followup_classifier_distinguishes_revision_from_new_claim():
     assert is_followup_request("make it shorter") is True
     assert is_followup_request("rewrite this in a more neutral tone") is True
     assert is_followup_request("The mayor said taxes fell 20%") is False
+
+
+def test_start_text_includes_examples():
+    assert "Examples:" in START_TEXT
+    assert "paste a tweet URL" in START_TEXT
+    assert "make it shorter" in START_TEXT
+
+
+def test_detect_request_mode_uses_history_and_followup_prefix():
+    assert detect_request_mode(has_latest_analysis=True, incoming_text="make it shorter") == "revision"
+    assert detect_request_mode(has_latest_analysis=False, incoming_text="make it shorter") == "analysis"
+    assert detect_request_mode(has_latest_analysis=True, incoming_text="https://x.com/example/status/1") == "analysis"
+
+
+def test_progress_updates_change_between_analysis_and_revision():
+    analysis_updates = build_progress_updates("analysis")
+    revision_updates = build_progress_updates("revision")
+
+    assert analysis_updates[0].startswith("Reading")
+    assert any("sources" in item.lower() for item in analysis_updates)
+    assert revision_updates[0].startswith("Reviewing")
+    assert any("rewriting" in item.lower() for item in revision_updates)

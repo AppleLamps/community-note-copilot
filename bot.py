@@ -13,9 +13,12 @@ LOGGER = logging.getLogger(__name__)
 
 
 START_TEXT = (
-    "Community Note Copilot analyzes tweet URLs or pasted claim text and drafts a Community Note "
-    "with suggested X form selections. Send a tweet link, tweet text, or a follow-up revision like "
-    "'make it shorter'."
+    "Community Note Copilot reviews tweet URLs or pasted claims, checks context, and drafts a "
+    "Community Note with suggested form selections.\n\n"
+    "Examples:\n"
+    "- paste a tweet URL\n"
+    "- paste a claim or screenshot text\n"
+    "- ask for a revision like 'make it shorter' or 'rewrite more neutrally'"
 )
 
 FOLLOWUP_PREFIXES = (
@@ -32,6 +35,9 @@ FOLLOWUP_PREFIXES = (
     "improve the note",
     "change the note",
 )
+
+
+RequestMode = str
 
 
 def build_followup_input(storage: Storage, telegram_user_id: int, followup_text: str) -> str:
@@ -62,6 +68,27 @@ async def help_command(update: Any, context: Any) -> None:
     await update.effective_message.reply_text(START_TEXT)
 
 
+def detect_request_mode(has_latest_analysis: bool, incoming_text: str) -> RequestMode:
+    if has_latest_analysis and is_followup_request(incoming_text):
+        return "revision"
+    return "analysis"
+
+
+def build_progress_updates(request_mode: RequestMode) -> list[str]:
+    if request_mode == "revision":
+        return [
+            "Reviewing the previous draft...",
+            "Rewriting the note with your request in mind...",
+            "Polishing the updated draft...",
+        ]
+
+    return [
+        "Reading the claim...",
+        "Checking sources and context...",
+        "Drafting a community note...",
+    ]
+
+
 async def message_handler(update: Any, context: Any) -> None:
     message = update.effective_message
     if message is None or not message.text:
@@ -75,17 +102,25 @@ async def message_handler(update: Any, context: Any) -> None:
 
     storage.save_message(user_id, chat_id, "user", incoming_text)
 
-    placeholder = await message.reply_text("🔍 Analyzing…")
+    latest = storage.get_latest_analysis(user_id)
+    request_mode = detect_request_mode(latest is not None, incoming_text)
+    progress_updates = build_progress_updates(request_mode)
+    placeholder = await message.reply_text(progress_updates[0])
 
     try:
-        latest = storage.get_latest_analysis(user_id)
-        if latest and is_followup_request(incoming_text):
+        if len(progress_updates) > 1:
+            await placeholder.edit_text(progress_updates[1])
+
+        if request_mode == "revision" and latest is not None:
             analysis = await analyzer.revise(build_followup_input(storage, user_id, incoming_text))
         else:
             analysis = await analyzer.analyze(incoming_text)
 
+        if len(progress_updates) > 2:
+            await placeholder.edit_text(progress_updates[2])
+
         final_text = (
-            format_analysis_message(analysis)
+            format_analysis_message(analysis, request_mode=request_mode)
             if analysis.is_structured()
             else format_parse_failure(analysis.raw_text)
         )
@@ -99,10 +134,10 @@ async def message_handler(update: Any, context: Any) -> None:
         )
         storage.save_message(user_id, chat_id, "assistant", final_text)
 
-        await placeholder.edit_text(final_text, parse_mode="MarkdownV2", disable_web_page_preview=True)
+        await placeholder.edit_text(final_text, disable_web_page_preview=True)
     except Exception as exc:  # pragma: no cover
         LOGGER.exception("Analysis failed")
-        await placeholder.edit_text(f"Analysis failed: {exc}")
+        await placeholder.edit_text(format_parse_failure(str(exc)))
 
 
 def looks_like_tweet_url(text: str) -> bool:
