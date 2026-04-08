@@ -5,7 +5,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from analyzer import AnalysisResult, extract_output_text, load_settings, parse_analysis_response
+from analyzer import (
+    AnalysisResult,
+    ANALYSIS_JSON_SCHEMA,
+    XAIAnalyzer,
+    build_revision_input,
+    extract_output_text,
+    load_settings,
+    parse_analysis_response,
+)
+from config import Settings
 
 
 def test_project_imports():
@@ -88,6 +97,93 @@ def test_parse_analysis_response_returns_raw_text_on_invalid_json():
     assert parsed.claim == ""
     assert parsed.raw_text == "not json"
     assert parsed.sources == []
+
+
+def test_is_structured_requires_claim_and_draft_note():
+    only_claim = AnalysisResult(
+        claim="x", verdict="", form_misleading="", form_category="",
+        form_harmful="", draft_note="", sources=[], raw_text="",
+    )
+    full = AnalysisResult(
+        claim="x", verdict="", form_misleading="", form_category="",
+        form_harmful="", draft_note="y", sources=[], raw_text="",
+    )
+    assert only_claim.is_structured() is False
+    assert full.is_structured() is True
+
+
+def test_build_revision_input_includes_prior_context():
+    prior = AnalysisResult(
+        claim="The claim",
+        verdict="Misleading",
+        form_misleading="yes",
+        form_category="Factual error",
+        form_harmful="no",
+        draft_note="Old draft",
+        sources=[{"url": "https://example.com", "description": "Example"}],
+        raw_text="",
+    )
+    out = build_revision_input(prior, "make it shorter", "original input text")
+
+    assert "make it shorter" in out
+    assert "The claim" in out
+    assert "Old draft" in out
+    assert "https://example.com" in out
+    assert "original input text" in out
+
+
+def test_analysis_json_schema_lists_required_fields():
+    required = set(ANALYSIS_JSON_SCHEMA["required"])
+    assert {
+        "claim",
+        "verdict",
+        "form_misleading",
+        "form_category",
+        "form_harmful",
+        "draft_note",
+        "sources",
+    } <= required
+
+
+def test_revise_calls_openai_without_tools(monkeypatch):
+    """The revise() path must not pass web_search/x_search tools."""
+    import asyncio
+
+    captured_kwargs: dict = {}
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            captured_kwargs.update(kwargs)
+            return SimpleNamespace(
+                output_text=json.dumps(
+                    {
+                        "claim": "x",
+                        "verdict": "y",
+                        "form_misleading": "no",
+                        "form_category": "Factual error",
+                        "form_harmful": "no",
+                        "draft_note": "shorter draft https://example.com",
+                        "sources": [{"url": "https://example.com", "description": "Example"}],
+                    }
+                ),
+                citations=[],
+            )
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    settings = Settings(telegram_bot_token="t", xai_api_key="k")
+    analyzer = XAIAnalyzer(settings)
+    monkeypatch.setattr(analyzer, "_create_client", lambda: FakeClient())
+
+    prior = AnalysisResult(
+        claim="x", verdict="y", form_misleading="no", form_category="Factual error",
+        form_harmful="no", draft_note="long draft", sources=[], raw_text="",
+    )
+    result = asyncio.run(analyzer.revise(prior, "shorter please", "original"))
+
+    assert "tools" not in captured_kwargs or captured_kwargs.get("tools") in (None, [])
+    assert result.draft_note == "shorter draft https://example.com"
 
 
 def test_readme_mentions_webhook_and_vps_notes():
