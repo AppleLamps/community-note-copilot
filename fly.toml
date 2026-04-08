@@ -1,27 +1,23 @@
-app = "community-note-copilot"
-primary_region = "iad"
+# fly.toml app configuration file generated for community-note-copilot on 2026-04-08T02:52:24Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'community-note-copilot'
+primary_region = 'ams'
 
 [build]
-
-[env]
-  SQLITE_PATH = "/data/community_note_copilot.sqlite3"
-  TELEGRAM_LISTEN_HOST = "0.0.0.0"
-  TELEGRAM_LISTEN_PORT = "8080"
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = false
+  auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 1
-  processes = ["app"]
+  min_machines_running = 0
+  processes = ['app']
 
-  [[http_service.tcp_checks]]
-    interval = "15s"
-    timeout = "2s"
-    grace_period = "10s"
-
-[[mounts]]
-  source = "data"
-  destination = "/data"
-  processes = ["app"]
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
