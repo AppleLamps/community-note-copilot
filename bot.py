@@ -134,9 +134,13 @@ async def message_handler(update: Any, context: Any) -> None:
         )
         storage.save_message(user_id, chat_id, "assistant", final_text)
 
+        # Plain text only: LLM/formatter output includes . _ * [] () in URLs and prose.
+        # parse_mode="MarkdownV2" without telegram.helpers.escape_markdown raises
+        # BadRequest: character '.' is reserved and must be escaped.
         await placeholder.edit_text(final_text, disable_web_page_preview=True)
     except Exception as exc:  # pragma: no cover
         LOGGER.exception("Analysis failed")
+        # Same as above — exception strings often contain dots and URLs.
         await placeholder.edit_text(format_parse_failure(str(exc)))
 
 

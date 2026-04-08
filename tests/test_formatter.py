@@ -2,6 +2,28 @@ from analyzer import AnalysisResult
 from formatter import format_analysis_message, format_parse_failure
 
 
+def test_format_analysis_includes_chars_that_require_escaping_for_markdown_v2():
+    """Regression for Telegram: MarkdownV2 treats '.' (and many URL chars) as special.
+
+    The bot must not send formatter output as MarkdownV2 unless fully escaped; plain
+    text avoids BadRequest from api.telegram.org on editMessageText.
+    """
+    result = AnalysisResult(
+        claim="See https://x.com/user/status/1. Continued after a period.",
+        verdict="Needs context.",
+        form_misleading="yes",
+        form_category="Factual error",
+        form_harmful="no",
+        draft_note="Note. With dots and a link https://example.com/path.",
+        sources=[{"url": "https://example.com/a.b", "description": "Source v1.0"}],
+        raw_text="",
+    )
+    formatted = format_analysis_message(result, request_mode="analysis")
+    assert "https://x.com/user/status/1" in formatted
+    assert "https://example.com/a.b" in formatted
+    assert "v1.0" in formatted
+
+
 def test_format_analysis_outputs_plain_text_sections_and_urls():
     result = AnalysisResult(
         claim="Claim with _chars_",
