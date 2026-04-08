@@ -1,5 +1,7 @@
 import json
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,6 +29,7 @@ def test_load_settings_reads_required_env(monkeypatch):
 def test_load_settings_requires_critical_env(monkeypatch):
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.setitem(sys.modules, "dotenv", SimpleNamespace(load_dotenv=lambda: None))
 
     with pytest.raises(ValueError):
         load_settings()
@@ -88,7 +91,7 @@ def test_parse_analysis_response_returns_raw_text_on_invalid_json():
 
 
 def test_readme_mentions_webhook_and_vps_notes():
-    text = Path("community-note-copilot/README.md").read_text(encoding="utf-8")
+    text = Path("README.md").read_text(encoding="utf-8")
 
     assert "webhook" in text.lower()
     assert "vps" in text.lower()
